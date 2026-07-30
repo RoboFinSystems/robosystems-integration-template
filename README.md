@@ -2,6 +2,8 @@
 
 A scaffold for building custom integrations against the [RoboSystems](https://github.com/RoboFinSystems/robosystems) public API.
 
+**Living example**: [`robosystems-marketing-integration`](https://github.com/RoboFinSystems/robosystems-marketing-integration) — a real integration built from this template that collects RFS's own marketing/usage metrics (GitHub, npm, PyPI, Docker Hub) and asserts them as a monthly metric series.
+
 An integration lives in its own repository — this one — and speaks to the platform exclusively through the public API with an API key. It never runs inside the platform, so it survives every platform release, works identically against the managed cloud or a self-hosted deployment, and is yours to run anywhere: a cron job, a Lambda, a container, a GitHub Actions schedule.
 
 ## The three lanes
