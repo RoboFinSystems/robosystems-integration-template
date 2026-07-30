@@ -59,12 +59,13 @@ The split is deliberate: **you own extract and transform** (they're specific to 
 
 ## Deploying
 
-This template ships no infrastructure on purpose — an integration is a small program that runs on a schedule, and anything that can run Python and reach the API works:
+An integration is a small program that runs on a schedule — the contract is env vars in, API calls out — so the runtime is swappable. The ladder, in increasing weight:
 
-- **Cron / systemd timer** on any host
-- **GitHub Actions schedule** (`on: schedule`) — simplest for low-volume integrations
-- **AWS Lambda + EventBridge** or **ECS scheduled task** — parameterize with the same env vars
-- Secrets (API key, source credentials) belong in your runtime's secret store — never in the repo
+1. **GitHub Actions (the default, included)**: `.github/workflows/run.yml` runs the integration on a cron with zero infrastructure. Set `secrets.ROBOSYSTEMS_API_KEY` plus `vars.ROBOSYSTEMS_GRAPH_ID` / `vars.INTEGRATION_SOURCE_NAME` in the repo settings and it's deployed. Standard runners give 4 vCPU / 16 GB and a 6-hour cap — ample for API-pull collectors.
+2. **GitHub Actions, larger runner**: heavy backfills or transforms get real memory/CPU with a one-line `runs-on` change (e.g. `ubuntu-latest-8-cores`) — still zero infrastructure.
+3. **ECS Fargate scheduled task**: full resource control and CloudWatch visibility when an integration outgrows runners — EventBridge Scheduler → `RunTask`, no service or load balancer, public subnet with egress only (the integration never needs to be inside a VPC; the API is the boundary). This template doesn't ship the CloudFormation for it — bring it when you graduate.
+
+Secrets (API key, source credentials) belong in your runtime's secret store — repo secrets, or the task's secret manager — never in the repo.
 
 ## SDK
 
