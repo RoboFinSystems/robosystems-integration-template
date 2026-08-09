@@ -75,7 +75,7 @@ The [`robosystems-client`](https://pypi.org/project/robosystems-client/) Python 
 
 ### What the pin promises
 
-`pyproject.toml` pins `robosystems-client>=1,<2`, and that range is safe because **this template defines the SDK's stable surface**. Every symbol the emitters import — `AuthenticatedClient`, `types.UNSET`, the emit operations (`create_file_upload`, `ingest_file`, `materialize`, `create_event_block`, `assert_metrics`, `create_taxonomy_block`) and their request models — is frozen for the life of `1.x`. Breaking any of it costs the SDK a major version. The client's CI enforces this directly: a `template-compat` job builds this template against every candidate client and fails the change if the typecheck or tests break.
+`pyproject.toml` pins `robosystems-client>=1,<2`, and that range is safe because **this template defines the SDK's stable surface**. Every symbol the emitters import — `AuthenticatedClient`, `types.UNSET`, the emit operations (`create_file_upload`, `ingest_file`, `materialize`, `create_event_block`, `assert_metrics`, `create_taxonomy_block`) and their request models — is frozen for the life of `1.x`. Breaking any of it costs the SDK a major version.
 
 The rest of `robosystems_client.api.*` carries no such promise. It tracks the API surface and moves with it on minor releases, so operations you reach for beyond the emitters above — including anything through `raw_operation` — can be renamed or removed without a major. If you build on one and want it frozen, the way to get that is to add it to this template's emitters, not to narrow the pin.
 
