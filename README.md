@@ -1,6 +1,6 @@
 # RoboSystems Integration Template
 
-A scaffold for building custom integrations against the [RoboSystems](https://github.com/RoboFinSystems/robosystems) public API.
+Part of RoboSystems, the open-source knowledge graph for finance. A scaffold for building custom integrations against the [RoboSystems](https://github.com/RoboFinSystems/robosystems) public API.
 
 **Living example**: [`robosystems-marketing-integration`](https://github.com/RoboFinSystems/robosystems-marketing-integration) — a real integration built from this template that collects RFS's own marketing/usage metrics (GitHub, npm, PyPI, Docker Hub) and asserts them as a monthly metric series.
 
