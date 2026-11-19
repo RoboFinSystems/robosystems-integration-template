@@ -14,7 +14,8 @@ A run, in order:
 3. ``emit_journal_entry`` per journal entry, each with the source's
    ``version`` of it. A higher version of an entry already sent replaces
    it; the same version again is a repeat and changes nothing.
-4. ``withdraw_entry`` for an entry the source no longer holds.
+4. ``withdraw_entry`` for an entry the source no longer holds, by the id
+   the source sent it under.
 5. ``report_sync`` — at the end, so a period close can tell the mirror is
    current.
 
@@ -111,8 +112,6 @@ def emit_journal_entry(
   with the same or a lower version it returns
   ``{"already_ingested": True, ...}`` and nothing changes.
 
-  Keep the ``result["id"]`` of the first delivery: it is the event id
-  ``withdraw_entry`` takes.
   """
   if version < 1:
     raise ValueError("version starts at 1 and only grows")
@@ -140,15 +139,55 @@ def emit_journal_entry(
   return emit_event(client, payload)
 
 
-def withdraw_entry(client: IntegrationClient, event_id: str) -> dict:
-  """Take an entry the source no longer holds out of the books: its event
-  is voided and its lines leave every balance. A withdrawn entry cannot be
-  sent again under the same ``external_id``.
+_FIND_EVENT = """
+query($source: String!, $externalId: String!, $entityId: String) {
+  eventBlocks(source: $source, externalId: $externalId, entityId: $entityId) {
+    id
+    status
+  }
+}
+"""
+
+
+def find_event(
+  client: IntegrationClient, external_id: str, *, entity_id: str | None = None
+) -> dict | None:
+  """The event the platform holds for a record this source sent, as
+  ``{"id", "status"}``, or None when it holds none. The integration needs
+  no record of its own of what it sent.
   """
+  found = client.graphql(
+    _FIND_EVENT,
+    {
+      "source": client.config.source_name,
+      "externalId": external_id,
+      "entityId": entity_id,
+    },
+  ).get("eventBlocks")
+  return found[0] if found else None
+
+
+def withdraw_entry(
+  client: IntegrationClient, external_id: str, *, entity_id: str | None = None
+) -> dict:
+  """Take an entry the source no longer holds out of the books, by the id
+  the source sent it under: its event is voided and its lines leave every
+  balance. A withdrawn entry cannot be sent again under the same
+  ``external_id``.
+
+  Safe to repeat: an entry already withdrawn returns
+  ``{"already_withdrawn": True, ...}``, and one the platform never held
+  returns ``{"not_found": True, ...}``.
+  """
+  event = find_event(client, external_id, entity_id=entity_id)
+  if event is None:
+    return {"not_found": True, "external_id": external_id}
+  if event["status"] == "voided":
+    return {"already_withdrawn": True, "external_id": external_id}
   return _operation(
     client,
     "update-event-block",
-    {"event_id": event_id, "transition_to": "voided", "source_retracted": True},
+    {"event_id": event["id"], "transition_to": "voided", "source_retracted": True},
   )
 
 

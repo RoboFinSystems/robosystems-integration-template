@@ -96,8 +96,8 @@ sent = emit_journal_entry(
   entity_id=entity_id,
 )
 
-# An entry the source deleted, by the event id its first delivery returned.
-withdraw_entry(client, event_id)
+# An entry the source deleted, by the id it was sent under.
+withdraw_entry(client, "JE-0987", entity_id=entity_id)
 
 # Last: so a period close can tell the mirror is current.
 report_sync(client, connection["connection_id"], counts={"entries_sent": 1})
@@ -106,7 +106,7 @@ report_sync(client, connection["connection_id"], counts={"entries_sent": 1})
 What to keep in mind:
 
 - **Version every entry.** A higher `version` of an `external_id` already sent replaces the entry, whole. The same or a lower version is a repeat and changes nothing, so a re-run is safe. Use the source's revision counter, or its last-modified time as an integer.
-- **Keep the event id.** The first delivery's `result["id"]` is what `withdraw_entry` takes; store it beside the source id in your own state.
+- **No state to keep.** A replacement and a withdrawal both go by the source's own id for the entry, so a run needs nothing saved from the one before. A withdrawal that is repeated, or names an entry never sent, changes nothing.
 - **Corrections reach open periods only.** A change dated in a closed month is refused. Reopen the month, send the change, and close it again; on these books a close posts nothing.
 - **Accounts are the entity's own.** Lines name accounts by element id in that entity's chart of accounts, which you set up before the first run.
 - **Needs `robosystems-client` 2.41 or later**, and an API that has the external ledger connection (self-hosted deployments: the release that added `ledger` to the external connection).

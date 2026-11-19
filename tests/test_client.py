@@ -313,8 +313,15 @@ class TestLedgerEmitter:
       withdraw_entry,
     )
 
-    client, seen = self._recording()
-    withdraw_entry(client, "evt_1")
+    client, seen = self._recording(
+      {
+        "/extensions/kg_test/graphql": (
+          200,
+          {"data": {"eventBlocks": [{"id": "evt_1", "status": "fulfilled"}]}},
+        )
+      }
+    )
+    withdraw_entry(client, "JE-2", entity_id="ent_sub")
     record_opening_balance(
       client,
       [{"element_id": "elem_cash", "debit_amount": 1000000, "credit_amount": 0}],
@@ -324,20 +331,47 @@ class TestLedgerEmitter:
     report_sync(client, "conn_1", counts={"entries_sent": 3})
     report_sync(client, "conn_1", succeeded=False, message="source timed out")
 
-    assert seen[0] == (
+    assert seen[0][0] == "/extensions/kg_test/graphql"
+    assert seen[0][1]["variables"] == {
+      "source": "testsource",
+      "externalId": "JE-2",
+      "entityId": "ent_sub",
+    }
+    assert seen[1] == (
       "/extensions/roboledger/kg_test/operations/update-event-block",
       {"event_id": "evt_1", "transition_to": "voided", "source_retracted": True},
     )
-    assert seen[1][0] == (
+    assert seen[2][0] == (
       "/extensions/roboledger/kg_test/operations/record-opening-balance"
     )
-    assert seen[1][1]["entity_id"] == "ent_sub"
-    assert seen[1][1]["equity_element_id"] == "elem_equity"
-    assert seen[2] == (
+    assert seen[2][1]["entity_id"] == "ent_sub"
+    assert seen[2][1]["equity_element_id"] == "elem_equity"
+    assert seen[3] == (
       "/v1/graphs/kg_test/connections/conn_1/sync-report",
       {"status": "succeeded", "counts": {"entries_sent": 3}},
     )
-    assert seen[3][1] == {"status": "failed", "message": "source timed out"}
+    assert seen[4][1] == {"status": "failed", "message": "source timed out"}
+
+  @pytest.mark.parametrize(
+    ("held", "answer"),
+    [
+      ([], {"not_found": True, "external_id": "JE-2"}),
+      (
+        [{"id": "evt_1", "status": "voided"}],
+        {"already_withdrawn": True, "external_id": "JE-2"},
+      ),
+    ],
+  )
+  def test_a_withdrawal_with_nothing_to_withdraw_changes_nothing(
+    self, held, answer
+  ) -> None:
+    from integration.emit.ledger import withdraw_entry
+
+    client, seen = self._recording(
+      {"/extensions/kg_test/graphql": (200, {"data": {"eventBlocks": held}})}
+    )
+    assert withdraw_entry(client, "JE-2") == answer
+    assert [path for path, _ in seen] == ["/extensions/kg_test/graphql"]
 
   def test_a_refused_registration_raises_with_the_reason(self) -> None:
     from integration.emit.ledger import register_ledger
