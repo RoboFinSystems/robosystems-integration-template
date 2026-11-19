@@ -197,3 +197,158 @@ class TestEmitEvent:
 
     assert seen == ["inv-1", "inv-2"]
     assert all(result["already_ingested"] for result in results)
+
+
+class TestLedgerEmitter:
+  """A general ledger kept elsewhere, mirrored read-only."""
+
+  @staticmethod
+  def _recording(responses: dict | None = None):
+    seen: list[tuple[str, dict]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+      seen.append((request.url.path, json.loads(request.content)))
+      status, body = (responses or {}).get(request.url.path, (200, _envelope()))
+      return httpx.Response(status, json=body)
+
+    return _client_with(handler), seen
+
+  def test_register_ledger_names_the_source_and_its_entity(self) -> None:
+    from integration.emit.ledger import register_ledger
+
+    client, seen = self._recording()
+    register_ledger(client, entity_id="ent_sub", display_name="ERP (UK)")
+    register_ledger(client)
+
+    assert seen[0] == (
+      "/v1/graphs/kg_test/connections",
+      {
+        "provider": "external",
+        "external_config": {
+          "source_name": "testsource",
+          "ledger": True,
+          "entity_id": "ent_sub",
+          "display_name": "ERP (UK)",
+        },
+      },
+    )
+    assert seen[1][1]["external_config"] == {
+      "source_name": "testsource",
+      "ledger": True,
+    }
+
+  def test_emit_journal_entry_sends_a_versioned_posted_entry(self) -> None:
+    from datetime import date
+
+    from integration.emit.ledger import emit_journal_entry
+
+    client, seen = self._recording()
+    lines = [
+      {"element_id": "elem_cash", "debit_amount": 62500, "credit_amount": 0},
+      {"element_id": "elem_rev", "debit_amount": 0, "credit_amount": 62500},
+    ]
+    emit_journal_entry(
+      client,
+      external_id="JE-1",
+      version=2,
+      posting_date=date(2026, 9, 20),
+      lines=lines,
+      memo="Rent received",
+      entity_id="ent_sub",
+    )
+
+    path, body = seen[0]
+    assert path == "/extensions/roboledger/kg_test/operations/create-event-block"
+    assert body["source"] == "testsource"
+    assert body["external_id"] == "JE-1"
+    assert body["source_version"] == 2
+    assert body["entity_id"] == "ent_sub"
+    assert body["event_type"] == "journal_entry_recorded"
+    assert body["apply_handlers"] is True
+    assert body["amount"] == 62500
+    assert body["occurred_at"].startswith("2026-09-20")
+    assert body["metadata"] == {
+      "posting_date": "2026-09-20",
+      "status": "posted",
+      "line_items": lines,
+      "memo": "Rent received",
+    }
+
+  def test_a_repeat_of_the_same_version_is_already_ingested(self) -> None:
+    from datetime import date
+
+    from integration.emit.ledger import emit_journal_entry
+
+    path = "/extensions/roboledger/kg_test/operations/create-event-block"
+    client, _seen = self._recording(
+      {
+        path: (
+          409,
+          {"detail": "Event already ingested for this source and external_id"},
+        )
+      }
+    )
+    result = emit_journal_entry(
+      client, external_id="JE-1", version=2, posting_date=date(2026, 9, 20), lines=[]
+    )
+    assert result["already_ingested"] is True
+    assert _seen[0][1]["metadata"]["memo"] == "JE-1"
+
+  def test_a_version_starts_at_one(self) -> None:
+    from datetime import date
+
+    from integration.emit.ledger import emit_journal_entry
+
+    client, seen = self._recording()
+    with pytest.raises(ValueError, match="version"):
+      emit_journal_entry(
+        client, external_id="JE-1", version=0, posting_date=date(2026, 9, 1), lines=[]
+      )
+    assert seen == []
+
+  def test_withdraw_opening_balance_and_sync_report(self) -> None:
+    from integration.emit.ledger import (
+      record_opening_balance,
+      report_sync,
+      withdraw_entry,
+    )
+
+    client, seen = self._recording()
+    withdraw_entry(client, "evt_1")
+    record_opening_balance(
+      client,
+      [{"element_id": "elem_cash", "debit_amount": 1000000, "credit_amount": 0}],
+      entity_id="ent_sub",
+      equity_element_id="elem_equity",
+    )
+    report_sync(client, "conn_1", counts={"entries_sent": 3})
+    report_sync(client, "conn_1", succeeded=False, message="source timed out")
+
+    assert seen[0] == (
+      "/extensions/roboledger/kg_test/operations/update-event-block",
+      {"event_id": "evt_1", "transition_to": "voided", "source_retracted": True},
+    )
+    assert seen[1][0] == (
+      "/extensions/roboledger/kg_test/operations/record-opening-balance"
+    )
+    assert seen[1][1]["entity_id"] == "ent_sub"
+    assert seen[1][1]["equity_element_id"] == "elem_equity"
+    assert seen[2] == (
+      "/v1/graphs/kg_test/connections/conn_1/sync-report",
+      {"status": "succeeded", "counts": {"entries_sent": 3}},
+    )
+    assert seen[3][1] == {"status": "failed", "message": "source timed out"}
+
+  def test_a_refused_registration_raises_with_the_reason(self) -> None:
+    from integration.emit.ledger import register_ledger
+
+    client, _seen = self._recording(
+      {
+        "/v1/graphs/kg_test/connections": (
+          409,
+          {"detail": {"code": "BOOKS_KEPT_ELSEWHERE"}},
+        )
+      }
+    )
+    with pytest.raises(IntegrationAPIError, match="BOOKS_KEPT_ELSEWHERE"):
+      register_ledger(client, entity_id="ent_sub")
