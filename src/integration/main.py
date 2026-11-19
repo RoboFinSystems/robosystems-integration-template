@@ -26,6 +26,12 @@ def run() -> None:
     #   from integration.emit.events import emit_events
     #   emit_events(client, records)
     #
+    # Lane 1, mirrored — a ledger kept elsewhere (see emit/ledger.py):
+    #   from integration.emit.ledger import emit_journal_entry, register_ledger
+    #   connection = register_ledger(client)
+    #   for entry in records: emit_journal_entry(client, **entry)
+    #   report_sync(client, connection["connection_id"])
+    #
     # Lane 2 — metric series (vocabulary authored once, then per period):
     #   from integration.emit.metrics import assert_metrics
     #   assert_metrics(client, structure_id=..., period_end=...,
